@@ -116,19 +116,25 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestKeysPreferKeychainOverEnv(t *testing.T) {
+func TestKeysPreferEnvOverKeychain(t *testing.T) {
 	ctx := context.Background()
 	keyring.MockInit()
 	t.Setenv("ANTHROPIC_API_KEY", "from-env")
 
 	key, source, err := settings.LocalKeys().Key(ctx, settings.Anthropic)
 	if err != nil || key != "from-env" || source != settings.KeyFromEnv {
-		t.Fatalf("env fallback: %q %q %v", key, source, err)
+		t.Fatalf("env: %q %q %v", key, source, err)
 	}
 
+	// A saved key is shadowed, not lost, while the variable is set.
 	if err := settings.LocalKeys().Set(ctx, settings.Anthropic, "  from-keychain \n"); err != nil {
 		t.Fatal(err)
 	}
+	key, source, err = settings.LocalKeys().Key(ctx, settings.Anthropic)
+	if err != nil || key != "from-env" || source != settings.KeyFromEnv {
+		t.Fatalf("env over keychain: %q %q %v", key, source, err)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	key, source, err = settings.LocalKeys().Key(ctx, settings.Anthropic)
 	if err != nil || key != "from-keychain" || source != settings.KeyFromKeychain {
 		t.Fatalf("keychain: %q %q %v", key, source, err)
@@ -140,8 +146,8 @@ func TestKeysPreferKeychainOverEnv(t *testing.T) {
 	if err := settings.LocalKeys().Delete(ctx, settings.Anthropic); err != nil {
 		t.Errorf("deleting a missing key: %v", err)
 	}
-	if _, source, _ := settings.LocalKeys().Key(ctx, settings.Anthropic); source != settings.KeyFromEnv {
-		t.Errorf("after delete, source = %q, want env", source)
+	if _, source, _ := settings.LocalKeys().Key(ctx, settings.Anthropic); source != "" {
+		t.Errorf("after delete, source = %q, want none", source)
 	}
 	if err := settings.LocalKeys().Set(ctx, settings.Anthropic, "   "); !errors.Is(err, settings.ErrInvalid) {
 		t.Errorf("blank key: err = %v, want ErrInvalid", err)
@@ -163,7 +169,8 @@ func TestNewClientNeedsProviderAndKey(t *testing.T) {
 	if _, _, err := settings.NewClient(ctx, clients, s); !errors.Is(err, settings.ErrNotConfigured) {
 		t.Errorf("no key: err = %v, want ErrNotConfigured", err)
 	}
-	if err := settings.LocalKeys().Set(ctx, settings.OpenAI, "sk-test"); err != nil {
+	// Written through the same Keys, so its cache sees the write.
+	if err := clients.Keys.Set(ctx, settings.OpenAI, "sk-test"); err != nil {
 		t.Fatal(err)
 	}
 	client, cfg, err := settings.NewClient(ctx, clients, s)
@@ -180,6 +187,17 @@ func TestKeychainFailureFallsBackToEnv(t *testing.T) {
 	key, source, err := settings.LocalKeys().Key(ctx, settings.Anthropic)
 	if err != nil || key != "from-env" || source != settings.KeyFromEnv {
 		t.Errorf("got %q %q %v, want the env key", key, source, err)
+	}
+}
+
+func TestKeychainFailureIsNoKeyNotAnError(t *testing.T) {
+	ctx := context.Background()
+	keyring.MockInitWithError(errors.New("no secret service"))
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	key, source, err := settings.LocalKeys().Key(ctx, settings.Anthropic)
+	if err != nil || key != "" || source != "" {
+		t.Errorf("got %q %q %v, want nothing", key, source, err)
 	}
 }
 

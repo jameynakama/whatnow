@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jameynakama/whatnow/internal/llm"
 )
@@ -151,6 +152,19 @@ func TestOpenAIRequestAndReply(t *testing.T) {
 	jsonSchema := format["json_schema"].(map[string]any)
 	if format["type"] != "json_schema" || jsonSchema["name"] != "result" || jsonSchema["strict"] != true {
 		t.Errorf("response_format = %v", format)
+	}
+}
+
+func TestOpenAIIgnoresTheEnvironmentBaseURL(t *testing.T) {
+	api := &fakeAPI{status: 200, reply: "{}"}
+	t.Setenv("OPENAI_BASE_URL", api.start(t))
+	// An empty base URL must still mean OpenAI, never the environment: hosted mode shares the
+	// process. The request goes to api.openai.com instead — a fast 401 online, a dial error off;
+	// what matters is the env-named server never sees it.
+	client := llm.NewOpenAI("sk-test", "", &http.Client{Timeout: 2 * time.Second})
+	_, _ = client.Complete(context.Background(), llm.Request{Model: "m", User: "hi", MaxTokens: 16})
+	if api.path != "" {
+		t.Error("the request went to OPENAI_BASE_URL's server")
 	}
 }
 

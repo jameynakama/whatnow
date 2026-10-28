@@ -131,6 +131,17 @@ func TestPullErrorsSayWhatToDo(t *testing.T) {
 	}
 }
 
+func TestPullRefusesTooBigAnAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(make([]byte, maxBody+1))
+	}))
+	t.Cleanup(srv.Close)
+	src := pull(t, cfg(srv.URL, ""))
+	if src.Err == nil || src.Err.Error() != "Review Queue's response was too large to read" {
+		t.Errorf("err = %v", src.Err)
+	}
+}
+
 func TestATimeoutBlamesGitHubNotReviewQueue(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()

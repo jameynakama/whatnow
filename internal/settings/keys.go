@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jameynakama/whatnow/internal/llm"
 	"github.com/jameynakama/whatnow/internal/secrets"
@@ -35,9 +36,10 @@ type Keys struct {
 	env bool
 }
 
-// LocalKeys keeps keys in the OS keychain, falling back to the environment.
+// LocalKeys keeps keys in the OS keychain, which the environment overrides. The keychain is
+// time-limited and cached: a dead or locked Secret Service mustn't hang the app.
 func LocalKeys() Keys {
-	return Keys{store: secrets.Keychain{}, source: KeyFromKeychain, env: true}
+	return Keys{store: secrets.Cached(secrets.WithTimeout(secrets.Keychain{}, 3*time.Second)), source: KeyFromKeychain, env: true}
 }
 
 // SealedKeys keeps keys in s alone. The server's environment is never a user's key.
@@ -45,23 +47,26 @@ func SealedKeys(s secrets.Store) Keys {
 	return Keys{store: s, source: KeyFromSaved}
 }
 
-// Key returns a provider's API key from the store, falling back to the provider's usual
-// environment variable where that's allowed.
+// Key returns a provider's API key from its usual environment variable where that's allowed,
+// else the store. The environment wins, the way it does for the CLIs users know, and a set
+// variable never touches the store at all: a saved key is shadowed, not deleted, while one is.
 func (k Keys) Key(ctx context.Context, p Provider) (string, KeySource, error) {
+	if k.env {
+		if key := os.Getenv(envVars[p]); key != "" {
+			return key, KeyFromEnv, nil
+		}
+	}
 	key, err := k.store.Get(ctx, string(p))
 	if err != nil {
 		if !k.env {
 			return "", "", err
 		}
-		// An unavailable keychain (no Secret Service, a denied prompt) shouldn't hide an env key.
+		// An unavailable keychain (no Secret Service, a denied prompt) is no key, not an error.
 		log.Printf("read %s key from keychain: %v", p, err)
-	} else if key != "" {
-		return key, k.source, nil
+		return "", "", nil
 	}
-	if k.env {
-		if key := os.Getenv(envVars[p]); key != "" {
-			return key, KeyFromEnv, nil
-		}
+	if key != "" {
+		return key, k.source, nil
 	}
 	return "", "", nil
 }

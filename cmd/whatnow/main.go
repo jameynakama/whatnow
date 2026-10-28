@@ -76,7 +76,9 @@ func jiraCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	return runJira(context.Background(), args, os.Stdin, os.Stdout, filepath.Join(dir, "whatnow"), secrets.Keychain{}, nil)
+	// The keychain can hang on a dead or locked Secret Service; bound and cache its answers.
+	vault := secrets.Cached(secrets.WithTimeout(secrets.Keychain{}, 3*time.Second))
+	return runJira(context.Background(), args, os.Stdin, os.Stdout, filepath.Join(dir, "whatnow"), vault, nil)
 }
 
 // command splits off the subcommand. With none, or only flags, it's the TUI.

@@ -88,7 +88,8 @@ func Open(o Options) (*App, error) {
 	}
 
 	clients := settings.Clients{Keys: settings.LocalKeys()}
-	var vault secrets.Store = secrets.Keychain{}
+	// The keychain can hang on a dead or locked Secret Service; bound and cache its answers.
+	var vault secrets.Store = secrets.Cached(secrets.WithTimeout(secrets.Keychain{}, 3*time.Second))
 	pulls := []integrations.Integration{gcal.New(nil), jira.New(nil), linear.NewAt(nil, o.LinearURL), reviewqueue.New(nil)}
 	loc := o.Loc
 	if o.Hosted != nil {

@@ -92,7 +92,7 @@ just install   # builds the web UI and puts whatnow in your GOBIN
 whatnow works with Anthropic (the default) or any OpenAI-compatible API, such as OpenAI,
 OpenRouter, Ollama, or LM Studio. Set it up on the first run, or later in settings. Keys are
 stored in your OS keychain, never in the database. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the
-environment works too.
+environment works too, and takes precedence over the keychain while set.
 
 Consumer subscriptions (Claude Pro or Max, ChatGPT plans) can't power whatnow. It needs an API key.
 

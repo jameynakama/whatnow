@@ -223,6 +223,22 @@ func TestPullReportsEachCalendarWithoutItsURL(t *testing.T) {
 	}
 }
 
+func TestPullRefusesTooBigACalendar(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(make([]byte, maxFeed+1))
+	}))
+	defer srv.Close()
+	cfg := integrations.Config{Lists: map[string][]integrations.Row{"calendars": {
+		{ID: "1", Values: map[string]string{"label": "Huge", "url": srv.URL}},
+	}}}
+
+	from, to := day("2026-10-05")
+	sources := New(nil).Pull(context.Background(), cfg, from, to)
+	if err := sources[0].Err; err == nil || err.Error() != "the calendar is too large to read" {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestPullGivesUpOnASlowCalendar(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()

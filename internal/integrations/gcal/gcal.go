@@ -66,6 +66,10 @@ func (c *Calendar) Pull(ctx context.Context, cfg integrations.Config, from, to t
 	return sources
 }
 
+// maxFeed bounds a feed's decompressed size. Twenty MB is a generous size; past the cap the
+// address isn't serving a calendar, and a hosted server shouldn't buffer whatever it is.
+const maxFeed = 32 << 20
+
 // fetch downloads a feed. Its errors never wrap the client's, which name the secret URL.
 func (c *Calendar) fetch(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -84,9 +88,12 @@ func (c *Calendar) fetch(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Google said %d, check the address", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFeed+1))
 	if err != nil {
 		return nil, errors.New("the download was cut off")
+	}
+	if len(body) > maxFeed {
+		return nil, errors.New("the calendar is too large to read")
 	}
 	return body, nil
 }

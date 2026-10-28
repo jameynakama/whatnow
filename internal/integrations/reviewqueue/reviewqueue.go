@@ -21,6 +21,10 @@ import (
 // maxResults caps a pull. A pick list longer than this means the minimum score is too low.
 const maxResults = 50
 
+// maxBody bounds the queue response. Fifty ranked pulls is generous; past the cap the address
+// isn't serving Review Queue answers, and a server shouldn't buffer whatever it is.
+const maxBody = 8 << 20
+
 var (
 	errUnreachable = errors.New("Can't reach Review Queue — is it running?")
 	// errSlow is a timeout, which is GitHub being slow behind Review Queue, not Review Queue down.
@@ -98,12 +102,15 @@ func (q *ReviewQueue) queue(ctx context.Context, cfg integrations.Config) ([]int
 		return nil, 0, errUnreachable
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		if errTimeout(err) {
 			return nil, 0, errSlow
 		}
 		return nil, 0, errUnreachable
+	}
+	if len(body) > maxBody {
+		return nil, 0, errors.New("Review Queue's response was too large to read")
 	}
 	if resp.StatusCode != http.StatusOK {
 		var bad struct {

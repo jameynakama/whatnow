@@ -656,6 +656,23 @@ func TestAddNeedsTheIntegrationOnAndAKeyAndTitle(t *testing.T) {
 	if _, _, err := e.runner.Add(ctx, "board", []integrations.Ticket{{Key: "FLEX1-1", Title: ""}}); !errors.Is(err, service.ErrInvalid) {
 		t.Errorf("no title: err = %v", err)
 	}
+	if _, _, err := e.runner.Add(ctx, "board", []integrations.Ticket{{Key: "FLEX1-1", Title: "x", URL: "javascript:alert(1)"}}); !errors.Is(err, service.ErrInvalid) {
+		t.Errorf("script address: err = %v", err)
+	}
+}
+
+func TestPullLeavesOutTicketsThePickerCouldntShow(t *testing.T) {
+	e := newEnv(t)
+	e.setUpBoard(t)
+	e.board.tickets = []integrations.Ticket{
+		ticket("FLEX1-1"),
+		{Key: "FLEX1-2", Title: ""},
+		{Key: "FLEX1-3", Title: "FLEX1-3 do it", URL: "javascript:alert(1)"},
+	}
+
+	if diff := cmp.Diff([]string{"FLEX1-1"}, offered(e.pullFrom(t, "board"))); diff != "" {
+		t.Errorf("offered (-want +got):\n%s", diff)
+	}
 }
 
 func TestSkippingATicketRemovesNoEvent(t *testing.T) {

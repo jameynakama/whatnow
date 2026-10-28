@@ -17,13 +17,21 @@ type openAIClient struct {
 	client openai.Client
 }
 
+// defaultBaseURL is OpenAI's endpoint, what the SDK itself uses for production. NewOpenAI always
+// sets the base URL explicitly, down to this default: the SDK has no WithoutEnvironmentDefaults
+// (as of v3.71.2 the marker is internal-only), so without an explicit one OPENAI_BASE_URL in the
+// process environment would name the endpoint. Hosted mode also refuses OPENAI_* variables at
+// startup; pinning here keeps a hosted user's requests on their own settings either way. The API
+// key needs no such guard: WithAPIKey is always explicit, so OPENAI_API_KEY never applies.
+const defaultBaseURL = "https://api.openai.com/v1/"
+
 // NewOpenAI returns a Client for the OpenAI chat completions API or any server compatible with
 // it, such as Ollama, LM Studio, or OpenRouter. An empty baseURL uses OpenAI, and a nil hc the SDK's HTTP client.
 func NewOpenAI(apiKey, baseURL string, hc *http.Client) Client {
-	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
-	if baseURL != "" {
-		opts = append(opts, option.WithBaseURL(baseURL))
+	if baseURL == "" {
+		baseURL = defaultBaseURL
 	}
+	opts := []option.RequestOption{option.WithAPIKey(apiKey), option.WithBaseURL(baseURL)}
 	if hc != nil {
 		opts = append(opts, option.WithHTTPClient(hc))
 	}

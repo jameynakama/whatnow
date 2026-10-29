@@ -212,6 +212,17 @@ func TestPullExplainsWhatWentWrongWithoutTheKey(t *testing.T) {
 	}
 }
 
+func TestPullRefusesTooBigAnAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(make([]byte, maxBody+1))
+	}))
+	t.Cleanup(srv.Close)
+	src := pull(t, srv.URL, cfg(""))
+	if src.Err == nil || src.Err.Error() != "Linear's response was too large to read" {
+		t.Errorf("err = %v", src.Err)
+	}
+}
+
 func TestPullBlamesTheNetworkWhenLinearIsOutOfReach(t *testing.T) {
 	src := pull(t, "http://127.0.0.1:1", cfg(""))
 	if src.Err == nil || src.Err.Error() != "Can't reach Linear" || strings.Contains(src.Err.Error(), key) {

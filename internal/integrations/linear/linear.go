@@ -22,6 +22,11 @@ import (
 
 const defaultEndpoint = "https://api.linear.app/graphql"
 
+// maxBody bounds a GraphQL response. Fifty issues with descriptions, plus ids to count the rest,
+// is generous; past the cap the endpoint isn't serving Linear answers, and a hosted server
+// shouldn't buffer whatever it is.
+const maxBody = 8 << 20
+
 // Linear has no total count, so one request asks twice: the issues to show, and more ids to count
 // what the pick list leaves out. Past 250 issues, the number undercounts.
 const (
@@ -191,9 +196,12 @@ func (l *Linear) search(ctx context.Context, cfg integrations.Config) ([]integra
 		return nil, 0, errUnreachable
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, 0, errUnreachable
+	}
+	if len(body) > maxBody {
+		return nil, 0, errors.New("Linear's response was too large to read")
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, 0, errRejected

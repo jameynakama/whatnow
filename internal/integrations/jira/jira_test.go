@@ -94,6 +94,17 @@ func TestPullExplainsWhatWentWrongWithoutTheToken(t *testing.T) {
 	}
 }
 
+func TestPullRefusesTooBigAnAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(make([]byte, maxBody+1))
+	}))
+	defer srv.Close()
+	src := pull(t, cfg(srv.URL))
+	if src.Err == nil || src.Err.Error() != "Jira's response was too large to read" {
+		t.Errorf("err = %v", src.Err)
+	}
+}
+
 func TestPullBlamesTheNetworkWhenJiraIsOutOfReach(t *testing.T) {
 	src := pull(t, cfg("http://127.0.0.1:1"))
 	if src.Err == nil || src.Err.Error() != "Can't reach Jira — on the VPN?" || strings.Contains(src.Err.Error(), token) || src.Hint != "computer" {

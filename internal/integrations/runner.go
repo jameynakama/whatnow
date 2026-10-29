@@ -539,6 +539,12 @@ func (r *Runner) offer(ctx context.Context, s saved, sources []Source) (PullResu
 			sr.Error = src.Err.Error()
 		}
 		for _, tk := range src.Tickets {
+			// An offered ticket renders as a link, so one the picker couldn't show — above all a
+			// non-web address, which would run as script when clicked — is left out, however the
+			// integration came by it. Pushed tickets are checked on arrival; this checks pulls.
+			if checkTicket(tk) != nil {
+				continue
+			}
 			if !have.hides(tk) {
 				sr.Tickets = append(sr.Tickets, tk)
 			}
@@ -598,8 +604,10 @@ func (r *Runner) Add(ctx context.Context, id string, tickets []Ticket) (int64, [
 		return 0, nil, fmt.Errorf("%w: %s is off or not set up", service.ErrConflict, in.Name())
 	}
 	for _, tk := range tickets {
-		if strings.TrimSpace(tk.Key) == "" || strings.TrimSpace(tk.Title) == "" {
-			return 0, nil, fmt.Errorf("%w: a ticket needs a key and a title", service.ErrInvalid)
+		// The caller is usually the pick list, but the API takes any client's tickets, and a
+		// ticket's URL is kept as the task's ref.
+		if err := checkTicket(tk); err != nil {
+			return 0, nil, fmt.Errorf("%w: %v", service.ErrInvalid, err)
 		}
 	}
 	s, err := load(ctx, r.db, id)

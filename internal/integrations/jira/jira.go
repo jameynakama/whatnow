@@ -19,6 +19,10 @@ import (
 // maxResults caps a pull. A pick list longer than this means the search is too broad.
 const maxResults = 50
 
+// maxBody bounds the search response. Fifty summaries and descriptions is generous; past the
+// cap the address isn't serving Jira answers, and a hosted server shouldn't buffer them.
+const maxBody = 8 << 20
+
 var (
 	errUnreachable = errors.New("Can't reach Jira — on the VPN?")
 	errRejected    = errors.New("Jira rejected the token")
@@ -90,9 +94,12 @@ func (j *Jira) search(ctx context.Context, cfg integrations.Config) ([]integrati
 		return nil, 0, errUnreachable
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, 0, errUnreachable
+	}
+	if len(body) > maxBody {
+		return nil, 0, errors.New("Jira's response was too large to read")
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:

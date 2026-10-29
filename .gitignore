@@ -7,3 +7,6 @@ internal/web/dist/*
 /.demo/
 tui.log
 /dist/
+/.env
+/secrets/
+/whatnow-backup*.tar.gz

@@ -77,6 +77,12 @@ On an Intel Mac, swap `arm64` for `amd64`. The binary isn't signed, so downloadi
 browser gets it blocked by Gatekeeper. `curl` doesn't, and `xattr -d com.apple.quarantine whatnow`
 undoes a browser download.
 
+### Docker
+
+Run personal mode with Docker Compose, including a persistent GNOME Keyring for API keys and
+integration secrets. See [docs/docker.md](docs/docker.md) for setup, host requirements, backups,
+and options for local or remote access.
+
 ### From source
 
 You need [Go](https://go.dev/dl/) 1.27+, Node 24, and [just](https://github.com/casey/just).

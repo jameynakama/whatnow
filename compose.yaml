@@ -1,0 +1,32 @@
+services:
+  whatnow:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - "${WHATNOW_BIND_ADDRESS:-127.0.0.1}:${WHATNOW_PORT:-7777}:7777"
+    volumes:
+      - whatnow-data:/data
+    secrets:
+      - keyring_password
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  whatnow-data:
+
+secrets:
+  keyring_password:
+    file: ./secrets/keyring_password

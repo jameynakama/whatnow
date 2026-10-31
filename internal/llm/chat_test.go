@@ -177,6 +177,40 @@ func TestOpenAIChatStreamsTextAndToolCalls(t *testing.T) {
 	}
 }
 
+// Gemini's OpenAI-compatible stream sends each tool call whole in its own chunk, with no index,
+// and puts a thought signature on the first that must be sent back with it.
+func TestOpenAIChatHandlesGeminiToolCalls(t *testing.T) {
+	extra := `{"google":{"thought_signature":"sig=="}}`
+	api := &sseAPI{events: []string{
+		openAIChunk(map[string]any{"role": "assistant", "tool_calls": []map[string]any{{"id": "call_1", "type": "function",
+			"extra_content": json.RawMessage(extra), "function": map[string]any{"name": "complete_task", "arguments": `{"task_id":4}`}}}}, nil),
+		openAIChunk(map[string]any{"tool_calls": []map[string]any{{"id": "call_2", "type": "function",
+			"function": map[string]any{"name": "complete_task", "arguments": `{"task_id":5}`}}}}, nil),
+		openAIChunk(map[string]any{}, "tool_calls"),
+		"data: [DONE]",
+	}}
+	client := llm.NewOpenAI("sk-test", api.start(t), nil)
+	reply, _ := collect(t, client, chatRequest())
+	want := llm.Reply{ToolCalls: []llm.ToolCall{
+		{ID: "call_1", Name: "complete_task", Input: json.RawMessage(`{"task_id":4}`), Extra: json.RawMessage(extra)},
+		{ID: "call_2", Name: "complete_task", Input: json.RawMessage(`{"task_id":5}`)},
+	}}
+	if diff := cmp.Diff(want, reply); diff != "" {
+		t.Fatalf("reply (-want +got):\n%s", diff)
+	}
+
+	req := chatRequest()
+	req.Messages[1].ToolCalls = reply.ToolCalls
+	collect(t, client, req)
+	calls := api.body["messages"].([]any)[2].(map[string]any)["tool_calls"].([]any)
+	if diff := cmp.Diff(map[string]any{"google": map[string]any{"thought_signature": "sig=="}}, calls[0].(map[string]any)["extra_content"]); diff != "" {
+		t.Errorf("echoed extra_content (-want +got):\n%s", diff)
+	}
+	if _, ok := calls[1].(map[string]any)["extra_content"]; ok {
+		t.Errorf("second call got extra_content it didn't come with: %v", calls[1])
+	}
+}
+
 func TestChatStopReasonsBecomeErrors(t *testing.T) {
 	text := []map[string]any{{"type": "text", "text": ""}, {"type": "text_delta", "text": "Sure, here"}}
 	cases := []struct {
@@ -198,6 +232,25 @@ func TestChatStopReasonsBecomeErrors(t *testing.T) {
 				t.Errorf("err = %v, want %v", err, c.want)
 			}
 		})
+	}
+}
+
+func TestOpenAIErrorIncludesResponseBody(t *testing.T) {
+	// Gemini's OpenAI-compatible endpoint wraps its error in an array, which the SDK can't parse.
+	body := `[{"error":{"code":400,"message":"Function call is missing a thought_signature","status":"INVALID_ARGUMENT"}}]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	client := openAIClient(srv.URL)
+	_, chatErr := client.Chat(context.Background(), chatRequest(), func(string) {})
+	_, completeErr := client.Complete(context.Background(), llm.Request{Model: "test-model", User: "hi", MaxTokens: 10})
+	for name, err := range map[string]error{"chat": chatErr, "complete": completeErr} {
+		if err == nil || !strings.Contains(err.Error(), "missing a thought_signature") {
+			t.Errorf("%s err = %v, want the response body in it", name, err)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -53,7 +54,7 @@ func (o *openAIClient) Complete(ctx context.Context, req Request) (string, error
 
 	resp, err := o.client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("openai: %w", err)
+		return "", openAIError(err)
 	}
 	if len(resp.Choices) == 0 {
 		return "", errors.New("openai: reply had no choices")
@@ -91,15 +92,38 @@ func (o *openAIClient) Chat(ctx context.Context, req ChatRequest, onText func(st
 	stream := o.client.Chat.Completions.NewStreaming(ctx, params)
 	defer stream.Close()
 	var acc openai.ChatCompletionAccumulator
+	// Tool calls are put together here, not by the accumulator: it drops extra_content, and it
+	// merges calls sent without an index, which is how Gemini sends them.
+	var calls []ToolCall
+	byIndex := map[int64]int{}
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
-		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			onText(chunk.Choices[0].Delta.Content)
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta
+		if delta.Content != "" {
+			onText(delta.Content)
+		}
+		for _, d := range delta.ToolCalls {
+			i := toolCallIndex(d, byIndex, len(calls))
+			if i == len(calls) {
+				calls = append(calls, ToolCall{})
+			}
+			c := &calls[i]
+			if d.ID != "" {
+				c.ID = d.ID
+			}
+			c.Name += d.Function.Name
+			c.Input = append(c.Input, d.Function.Arguments...)
+			if raw := d.JSON.ExtraFields["extra_content"].Raw(); raw != "" {
+				c.Extra = json.RawMessage(raw)
+			}
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return Reply{}, fmt.Errorf("openai: %w", err)
+		return Reply{}, openAIError(err)
 	}
 	if len(acc.Choices) == 0 {
 		return Reply{}, errors.New("openai: reply had no choices")
@@ -111,11 +135,32 @@ func (o *openAIClient) Chat(ctx context.Context, req ChatRequest, onText func(st
 	if choice.FinishReason == "length" {
 		return Reply{}, ErrTruncated
 	}
-	reply := Reply{Text: choice.Message.Content}
-	for _, c := range choice.Message.ToolCalls {
-		reply.ToolCalls = append(reply.ToolCalls, ToolCall{ID: c.ID, Name: c.Function.Name, Input: json.RawMessage(c.Function.Arguments)})
+	return Reply{Text: choice.Message.Content, ToolCalls: calls}, nil
+}
+
+// toolCallIndex is which call in calls a streamed piece belongs to, or len(calls) when it starts a
+// new one. OpenAI numbers each call's pieces. Gemini sends each call whole and unnumbered.
+func toolCallIndex(d openai.ChatCompletionChunkChoiceDeltaToolCall, byIndex map[int64]int, n int) int {
+	if !d.JSON.Index.Valid() {
+		return n
 	}
-	return reply, nil
+	if i, ok := byIndex[d.Index]; ok {
+		return i
+	}
+	byIndex[d.Index] = n
+	return n
+}
+
+// openAIError adds the response body to an API error, whose message is only the status. The body
+// says what was wrong, and some compatible servers send one the SDK can't parse.
+func openAIError(err error) error {
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) && apiErr.Response != nil {
+		if body, readErr := io.ReadAll(apiErr.Response.Body); readErr == nil && len(body) > 0 {
+			return fmt.Errorf("openai: %w: %s", err, body)
+		}
+	}
+	return fmt.Errorf("openai: %w", err)
 }
 
 // openAISystem joins the layers in order, since chat completions take one system message.
@@ -148,12 +193,14 @@ func openAIMessages(m Message) []openai.ChatCompletionMessageParamUnion {
 		assistant.Content.OfString = openai.String(m.Text)
 	}
 	for _, c := range m.ToolCalls {
-		assistant.ToolCalls = append(assistant.ToolCalls, openai.ChatCompletionMessageToolCallUnionParam{
-			OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-				ID:       c.ID,
-				Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{Name: c.Name, Arguments: string(c.Input)},
-			},
-		})
+		call := &openai.ChatCompletionMessageFunctionToolCallParam{
+			ID:       c.ID,
+			Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{Name: c.Name, Arguments: string(c.Input)},
+		}
+		if c.Extra != nil {
+			call.SetExtraFields(map[string]any{"extra_content": c.Extra})
+		}
+		assistant.ToolCalls = append(assistant.ToolCalls, openai.ChatCompletionMessageToolCallUnionParam{OfFunction: call})
 	}
 	return []openai.ChatCompletionMessageParamUnion{{OfAssistant: &assistant}}
 }

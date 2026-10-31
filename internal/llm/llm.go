@@ -65,6 +65,9 @@ type ToolCall struct {
 	ID    string
 	Name  string
 	Input json.RawMessage
+	// Extra is provider data the call came with that must be sent back with it, such as the
+	// thought signature Gemini puts in an OpenAI-compatible tool call's extra_content.
+	Extra json.RawMessage
 }
 
 // ToolResult answers one tool call. IsError tells the model the call failed and why.

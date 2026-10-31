@@ -79,6 +79,10 @@
 					<p>{m.text}</p>
 					{#if m.error}
 						<a href="/settings">Check settings</a>
+						<details class="small">
+							<summary>What went wrong</summary>
+							<code>{m.error}</code>
+						</details>
 					{/if}
 					{#if m.batch_id}
 						{#if chat.undone.includes(m.batch_id)}
@@ -169,6 +173,15 @@
 		background: var(--card);
 		border: 2px dashed var(--ink-soft);
 		color: var(--ink-soft);
+	}
+	details summary {
+		cursor: pointer;
+	}
+	details code {
+		display: block;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		user-select: all;
 	}
 	.toolchip {
 		font-size: 11px;

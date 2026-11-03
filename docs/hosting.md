@@ -235,6 +235,14 @@ snapshot:
   interval: 24h
   retention: 720h
 
+# Litestream polls R2 on these timers for every database, even idle ones, and each poll is a
+# billable Class A operation. The defaults (L1 every 30s, L0 check every 15s) cost about
+# 9k operations per database per day, which leaves the free tier behind after a few dozen users.
+levels:
+  - interval: 5m
+  - interval: 1h
+l0-retention-check-interval: 5m
+
 dbs:
   - dir: /mnt/whatnow
     pattern: "*.db"

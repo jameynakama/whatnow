@@ -250,6 +250,8 @@ dbs:
     watch: true
     replica:
       type: s3
+      # A dead Volume loses at most this much of each user's latest writes. The default is 1s.
+      sync-interval: 1m
       bucket: whatnow-backups
       path: whatnow
       endpoint: https://YOUR-ACCOUNT-ID.r2.cloudflarestorage.com
